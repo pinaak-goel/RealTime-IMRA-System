@@ -1,6 +1,12 @@
-import time
+import json
 import random
+import asyncio
 from datetime import datetime
+from azure.eventhub import EventData
+from azure.eventhub.aio import EventHubProducerClient
+
+EVENT_HUB_CONNECTION_STR = ""
+EVENT_HUB_NAME = ""
 
 # Actual latitude and longitude values for major cities in New York state
 city_coordinates = {
@@ -16,8 +22,27 @@ city_coordinates = {
     'Utica': (43.1009, -75.2327)
 }
 
+async def run(incident_data):
+    # Create a producer client to send messages to the event hub.
+    # Use a global producer client for efficiency.
+    global producer
+    if not producer:
+        producer = EventHubProducerClient.from_connection_string(
+            conn_str=EVENT_HUB_CONNECTION_STR, eventhub_name=EVENT_HUB_NAME
+        )
+    
+    async with producer:
+        # Create a batch.
+        event_data_batch = await producer.create_batch()
+
+        # Serialize incident_data to JSON and add to the batch.
+        event_data_batch.add(EventData(json.dumps(incident_data)))
+
+        # Send the batch of events to the event hub.
+        await producer.send_batch(event_data_batch)
+
 # Function to generate real-time data for incidents
-def generate_realtime_incidents():
+async def generate_realtime_incidents():
     while True:
         # Generate timestamp
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
@@ -34,13 +59,15 @@ def generate_realtime_incidents():
             'Longitude': longitude
         }
         
-        yield incident_data
-        time.sleep(random.uniform(0.5, 2.0))
+        # Send the incident data asynchronously
+        await run(incident_data)
+        
+        # Delay before generating the next incident
+        await asyncio.sleep(2 * 60)
 
-# Test generator function
+# Initialize the global producer client
+producer = None
+
+# Test asyncio event loop
 if __name__ == '__main__':
-    data_generator = generate_realtime_incidents()
-    for _ in range(10):  # Generate 10 data points for demonstration
-        incident_data = next(data_generator)
-        print("Incident Data:", incident_data)
-        print("-" * 50)
+    asyncio.run(generate_realtime_incidents())
